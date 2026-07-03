@@ -1,36 +1,20 @@
 #!/bin/bash
-# update-ai-toolkit.sh — обновление ostris/ai-toolkit до свежего main на vast.ai
-#
-# Запуск вручную на инстансе:
-#   curl -fsSL https://raw.githubusercontent.com/<ТВОЙ_ЮЗЕР>/<РЕПО>/main/update-ai-toolkit.sh | bash
-# Или автоматически при старте инстанса — см. инструкцию ниже.
-
-set -euo pipefail
-
-TOOLKIT_DIR="${TOOLKIT_DIR:-/workspace/ai-toolkit}"
-
-echo "=== [1/5] Активация venv ==="
-if [ -f /venv/main/bin/activate ]; then
-    source /venv/main/bin/activate
-fi
-
-echo "=== [2/5] Обновление кода ==="
-cd "$TOOLKIT_DIR"
+(
+set -e
+# ждём, пока шаблон развернёт ai-toolkit и venv
+while [ ! -d /workspace/ai-toolkit/.git ] || [ ! -f /venv/main/bin/activate ]; do sleep 5; done
+source /venv/main/bin/activate
+cd /workspace/ai-toolkit
 git fetch origin
-git checkout -B main origin/main
-echo "Текущий коммит: $(git log -1 --oneline)"
-
-echo "=== [3/5] Python-зависимости ==="
-pip install -r requirements.txt
-
-echo "=== [4/5] Сборка UI ==="
-cd "$TOOLKIT_DIR/ui"
-npm install
-npm run build
-
-echo "=== [5/5] Перезапуск сервиса ==="
-supervisorctl restart ai-toolkit 2>/dev/null \
-    || echo "supervisor ещё не запущен — сервис поднимется сам при старте инстанса"
-
-python -c "import torch; print('torch', torch.__version__, 'CUDA OK:', torch.cuda.is_available())"
-echo "=== ОБНОВЛЕНИЕ ЗАВЕРШЕНО ==="
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+    git checkout -B main origin/main
+    pip install -r requirements.txt
+    cd ui && npm install && npm run update_db && npm run build
+    # ждём, пока поднимется supervisor, и перезапускаем сервис с новым кодом
+    for i in $(seq 1 60); do supervisorctl status >/dev/null 2>&1 && break; sleep 5; done
+    supervisorctl restart ai-toolkit || true
+else
+    echo "Уже актуальная версия, обновление не требуется"
+fi
+echo "ГОТОВО"
+) >> /workspace/update-ai-toolkit.log 2>&1 &
