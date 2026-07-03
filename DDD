@@ -1,0 +1,36 @@
+#!/bin/bash
+# update-ai-toolkit.sh — обновление ostris/ai-toolkit до свежего main на vast.ai
+#
+# Запуск вручную на инстансе:
+#   curl -fsSL https://raw.githubusercontent.com/<ТВОЙ_ЮЗЕР>/<РЕПО>/main/update-ai-toolkit.sh | bash
+# Или автоматически при старте инстанса — см. инструкцию ниже.
+
+set -euo pipefail
+
+TOOLKIT_DIR="${TOOLKIT_DIR:-/workspace/ai-toolkit}"
+
+echo "=== [1/5] Активация venv ==="
+if [ -f /venv/main/bin/activate ]; then
+    source /venv/main/bin/activate
+fi
+
+echo "=== [2/5] Обновление кода ==="
+cd "$TOOLKIT_DIR"
+git fetch origin
+git checkout -B main origin/main
+echo "Текущий коммит: $(git log -1 --oneline)"
+
+echo "=== [3/5] Python-зависимости ==="
+pip install -r requirements.txt
+
+echo "=== [4/5] Сборка UI ==="
+cd "$TOOLKIT_DIR/ui"
+npm install
+npm run build
+
+echo "=== [5/5] Перезапуск сервиса ==="
+supervisorctl restart ai-toolkit 2>/dev/null \
+    || echo "supervisor ещё не запущен — сервис поднимется сам при старте инстанса"
+
+python -c "import torch; print('torch', torch.__version__, 'CUDA OK:', torch.cuda.is_available())"
+echo "=== ОБНОВЛЕНИЕ ЗАВЕРШЕНО ==="
